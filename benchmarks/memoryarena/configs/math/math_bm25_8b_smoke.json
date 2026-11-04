@@ -1,0 +1,44 @@
+{
+  "task_name": "math",
+  "description": "Math reasoning task with memory system",
+  "agent": {
+    "model_name": "Qwen/Qwen3-8B",
+    "temperature": 0.0,
+    "max_tokens": 8192,
+    "backend": "openai",
+    "base_url": "http://localhost:8000/v1"
+  },
+  "memory": {
+    "session_wise_memory": true,
+    "judge_result_in_memory": false,
+    "memory_system_name": "bm25",
+    "base_url": "http://localhost:8010",
+    "timeout": 300
+  },
+  "env": {
+    "env_name": "math",
+    "base_url": "http://localhost:8011",
+    "timeout": 300,
+    "env_config": {
+      "model_name": "gpt-4.1-mini",
+      "temperature": 1.0,
+      "max_tokens": 4096,
+      "backend": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "max_steps": 10
+    }
+  },
+  "task_specific": {
+    "max_steps": 10,
+    "auto_eval_after_run": true,
+    "dataset": {
+      "hf_dataset": "ZexueHe/memoryarena",
+      "hf_config": "formal_reasoning_math",
+      "hf_split": "test"
+    },
+    "max_papers": 1
+  },
+  "output": {
+    "json_output_dir": "./results/json/math_8b_smoke/bm25"
+  }
+}

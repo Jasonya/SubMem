@@ -1,0 +1,33 @@
+{
+  "task_name": "travel",
+  "agent": {
+    "model_name": "Qwen/Qwen3-8B",
+    "temperature": 0.0,
+    "max_tokens": 8192,
+    "backend": "openai",
+    "base_url": "http://localhost:8000/v1"
+  },
+  "memory": {
+    "memory_system_name": "submem_m1",
+    "server_url": "http://localhost:8010",
+    "session_wise_memory": true,
+    "timeout": 300
+  },
+  "env": {
+    "env_name": "travel_planner",
+    "env_server_url": "http://localhost:8011",
+    "timeout": 300,
+    "env_config": {
+      "model_name": "gpt-4.1-mini",
+      "judgement_mode": "hint",
+      "max_steps": 30,
+      "base_url": "https://api.openai.com/v1"
+    }
+  },
+  "task_specific": {
+    "max_steps": 30
+  },
+  "output": {
+    "output_dir": "./results/travel_8b_kb/submem_m1"
+  }
+}

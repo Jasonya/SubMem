@@ -1,0 +1,209 @@
+diff --git a/env/env_systems/formal_reasoning_env/llm_backend.py b/env/env_systems/formal_reasoning_env/llm_backend.py
+index a35d6d0..dd8f2d1 100644
+--- a/env/env_systems/formal_reasoning_env/llm_backend.py
++++ b/env/env_systems/formal_reasoning_env/llm_backend.py
+@@ -71,6 +71,10 @@ class OpenAIBackend(LLMBackend):
+         max_tokens: Optional[int] = None,
+         **kwargs
+     ) -> str:
++        # Qwen3 via vLLM: disable thinking mode (real OpenAI models must not
++        # receive this extra arg, so gate on the model name).
++        if "qwen" in (self.model_name or "").lower():
++            kwargs.setdefault("extra_body", {"chat_template_kwargs": {"enable_thinking": False}})
+         response = self.client.chat.completions.create(
+             model=self.model_name,
+             messages=messages,
+@@ -151,6 +155,10 @@ class OpenRouterBackend(LLMBackend):
+         max_tokens: Optional[int] = None,
+         **kwargs
+     ) -> str:
++        # Qwen3 via vLLM: disable thinking mode (real OpenAI models must not
++        # receive this extra arg, so gate on the model name).
++        if "qwen" in (self.model_name or "").lower():
++            kwargs.setdefault("extra_body", {"chat_template_kwargs": {"enable_thinking": False}})
+         response = self.client.chat.completions.create(
+             model=self.model_name,
+             messages=messages,
+diff --git a/env/env_systems/travel_planner_env/clients/openai_client.py b/env/env_systems/travel_planner_env/clients/openai_client.py
+index 52796b4..dd21f4f 100644
+--- a/env/env_systems/travel_planner_env/clients/openai_client.py
++++ b/env/env_systems/travel_planner_env/clients/openai_client.py
+@@ -36,6 +36,9 @@ class OpenAIClient(BaseModelClient):
+         """
+         Send messages to OpenAI with tools enabled.
+         """
++        # Clamp so prompt+output fits the serving context (vLLM --max-model-len 16384);
++        # MA_MAX_COMPLETION_TOKENS overrides. No-op for large-context API models.
++        max_tokens = min(max_tokens, int(os.environ.get("MA_MAX_COMPLETION_TOKENS", "8192")))
+         try:
+             if self.model_name.startswith('gpt-5'):
+                 # gpt-5 系列: 用 max_completion_tokens, 不传 temperature
+@@ -44,7 +47,9 @@ class OpenAIClient(BaseModelClient):
+                     messages=messages,
+                     tools=tools if tools else None,
+                     tool_choice="auto" if tools else None,
+-                    max_completion_tokens=max_tokens
++                    max_completion_tokens=max_tokens,
++                    **({"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
++                       if "qwen" in (self.model_name or "").lower() else {}),
+                 )
+             else:
+                 # gpt-4 / Claude / 其他: 用 temperature + max_tokens
+@@ -54,7 +59,9 @@ class OpenAIClient(BaseModelClient):
+                     tools=tools if tools else None,
+                     tool_choice="auto" if tools else None,
+                     temperature=temperature,
+-                    max_tokens=max_tokens
++                    max_tokens=max_tokens,
++                    **({"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
++                       if "qwen" in (self.model_name or "").lower() else {}),
+                 )
+             
+             # Track usage
+diff --git a/memory/client.py b/memory/client.py
+index 8191f23..09a0e36 100644
+--- a/memory/client.py
++++ b/memory/client.py
+@@ -11,7 +11,7 @@ class MemoryClient:
+         memory_system_name: str = "mirix",
+         base_url: str = "http://0.0.0.0:8000",
+         session: Optional[requests.Session] = None,
+-        timeout: int = 300,
++        timeout: int = int(__import__("os").environ.get("MA_MEM_TIMEOUT", "300")),
+     ):
+         self.user_id = str(user_id)
+         self.memory_system_name = memory_system_name
+diff --git a/memory/memory_systems/__init__.py b/memory/memory_systems/__init__.py
+index a3f14d9..f499819 100644
+--- a/memory/memory_systems/__init__.py
++++ b/memory/memory_systems/__init__.py
+@@ -1,11 +1,28 @@
+-from .mirix import MirixMemorySystem
+-from .long_context import LongContextMemorySystem
+-from .mem0 import Mem0MemorySystem
+-from .letta import LettaMemorySystem
+-from .rag import RAGMemorySystem
+-from .memorag import MemoRAGMemorySystem
+-from .langchain_graphrag import GraphRAGMemorySystem
+-from .amem import AMemMemorySystem
+-from .lightmem import LightMemMemorySystem
+-from .reasoningbank import ReasoningBankMemorySystem
+-from .zep import ZepMemorySystem
+\ No newline at end of file
++"""Memory-system registry.
++
++Imports are tolerant of missing optional dependencies (mirix, mem0, letta
++SDKs etc.) so that the memory server can run with whatever subset of
++systems is installed. Missing systems resolve to None and are skipped by
++the server's factory table.
++"""
++
++def _try(name, attr):
++    try:
++        mod = __import__(f"{__name__}.{name}", fromlist=[attr])
++        return getattr(mod, attr)
++    except Exception as e:  # noqa: BLE001 - report and continue
++        print(f"[memory_systems] {name} unavailable: {e}")
++        return None
++
++
++MirixMemorySystem = _try("mirix", "MirixMemorySystem")
++LongContextMemorySystem = _try("long_context", "LongContextMemorySystem")
++Mem0MemorySystem = _try("mem0", "Mem0MemorySystem")
++LettaMemorySystem = _try("letta", "LettaMemorySystem")
++RAGMemorySystem = _try("rag", "RAGMemorySystem")
++MemoRAGMemorySystem = _try("memorag", "MemoRAGMemorySystem")
++GraphRAGMemorySystem = _try("langchain_graphrag", "GraphRAGMemorySystem")
++AMemMemorySystem = _try("amem", "AMemMemorySystem")
++LightMemMemorySystem = _try("lightmem", "LightMemMemorySystem")
++ReasoningBankMemorySystem = _try("reasoningbank", "ReasoningBankMemorySystem")
++ZepMemorySystem = _try("zep", "ZepMemorySystem")
+diff --git a/memory/server.py b/memory/server.py
+index 0c5484f..bcfa4ab 100644
+--- a/memory/server.py
++++ b/memory/server.py
+@@ -61,6 +61,16 @@ MEMORY_FACTORIES: Dict[str, Callable[[], object]] = {
+     "zep": ZepMemorySystem,
+ }
+ 
++# SubMem substrates (external families M1-M8) exposed through the adapter.
++# Internal substrates (M9-M11) need weight/activation access to the task
++# agent and cannot run behind an API-backed agent loop.
++try:
++    from memory_systems.submem_adapter import make_submem_system
++    for _mid in ("M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11"):
++        MEMORY_FACTORIES[f"submem_{_mid.lower()}"] = make_submem_system(_mid)
++except Exception as _e:  # SubMem not importable — keep stock systems working
++    print(f"[server] SubMem adapter unavailable: {_e}", flush=True)
++
+ 
+ # ---------- FastAPI wiring ----------
+ app = FastAPI(title="Memory Agent Server")
+@@ -85,6 +95,32 @@ def _get_memory(user_id: str, memory_system: str):
+ 
+ @app.post("/memory/initialize")
+ def initialize(req: InitializeRequest):
++    # MemoryArena runs tasks sequentially: a new initialize means the previous
++    # task's memory system is dead weight. Evict it so substrate-held GPU
++    # state (episodes, adapters) is freed; the HF backbone itself is a shared
++    # singleton inside the adapter and survives eviction.
++    if MEMORY_SYSTEMS:
++        # Evict finished same-name systems but KEEP the 2 most recent: with two
++        # concurrent shards of one substrate, each shard's active system is always
++        # among the newest 2, so only completed groups' state is freed. (Evicting
++        # every same-name entry here caused 404s on the sibling shard's active user.)
++        _name = req.memory_system_name
++        _same = [_uid for _uid, _e in MEMORY_SYSTEMS.items() if _e.name == _name]
++        for _uid in _same[:-2]:
++            _entry = MEMORY_SYSTEMS[_uid]
++            try:
++                _u = getattr(_entry.system, "_unit", None)
++                if _u is not None and hasattr(_u, "unload"):
++                    _u.unload()
++            except Exception:
++                pass
++            del MEMORY_SYSTEMS[_uid]
++        try:
++            import gc, torch
++            gc.collect()
++            torch.cuda.empty_cache()
++        except Exception:
++            pass
+     name = req.memory_system_name
+     if name in {"bm25", "text-embedding-3-small"}:
+         memory_system = RAGMemorySystem(retrieval_method=name)
+@@ -119,4 +155,4 @@ def wrap_user_prompt(req: QueryRequest):
+     return {"status": "ok", "user_id": req.user_id, "prompt": prompt}
+ 
+ if __name__ == "__main__":
+-    uvicorn.run(app, host="0.0.0.0", port=8000)
++    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("MEM_PORT", 8010)))
+diff --git a/run_travel.py b/run_travel.py
+index 1859296..5057763 100644
+--- a/run_travel.py
++++ b/run_travel.py
+@@ -106,8 +106,8 @@ def load_config(config_path):
+         model_name=agent.get("model_name", "gpt-4.1-mini"),
+         memory_system=memory.get("memory_system_name", "none"),
+         use_step_memory=memory.get("use_step_memory", False),
+-        server_url=memory.get("server_url", "http://0.0.0.0:8000"),
+-        env_server_url=env.get("env_server_url", "http://0.0.0.0:8001"),
++        server_url=os.environ.get("MA_MEM_URL") or memory.get("server_url", "http://0.0.0.0:8000"),
++        env_server_url=os.environ.get("MA_ENV_URL") or env.get("env_server_url", "http://0.0.0.0:8001"),
+         judgement_mode=env.get("env_config", {}).get("judgement_mode", "none"),
+         max_steps=task_specific.get("max_steps", 30),
+         output_dir=output.get("output_dir", "./"),
+@@ -159,6 +159,13 @@ def main():
+     print("=" * 60 + "\n")
+ 
+     query_data_list = load_travel_data()
++    _mg = int(os.environ.get("MA_MAX_GROUPS", "0"))
++    if _mg > 0:
++        query_data_list = query_data_list[:_mg]
++    _shard = os.environ.get("MA_GROUP_SHARD", "")
++    if _shard:
++        _i, _n = (int(x) for x in _shard.split(","))
++        query_data_list = query_data_list[_i::_n]
+     print(f"Loaded {len(query_data_list)} data items")
+     if query_data_list:
+         print('First item keys:', list(query_data_list[0].keys()))

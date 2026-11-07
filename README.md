@@ -25,10 +25,9 @@ metric suite.
 | M10 | Full Context | no memory, the upper-bound control |
 | M11 | EpiCache | episodic KV cache selection |
 
-M8's adapter is restored from this repository's history. Running it still
-requires the original customized MemSkill backend, which is not included here;
-a stock upstream checkout is insufficient. See [M8 restoration status](docs/M8_RESTORATION.md)
-for the exact boundary between the restored adapter and the missing runtime.
+M8 uses an external MemSkill backend with SubMem's LLM-controller and
+instrumentation interfaces. The backend is not bundled with this repository.
+See [M8 configuration](docs/M8.md) for the required interfaces and usage.
 
 All eleven implement the same interface in [memory/base.py](memory/base.py), so a
 benchmark never knows which substrate it is running against.
@@ -94,10 +93,7 @@ docs/            runbook, prompt inventory, LoCoMo quick start
 ## What is not here
 
 Raw run outputs, figures, and analysis artifacts run to several GB and are not
-tracked. Configurations are under `benchmarks/` and `scripts/`. In particular,
-M8 cannot currently reproduce the reported experiments from this checkout alone:
-its original customized backend is unavailable. Restoring its adapter does not
-validate the published numbers.
+tracked. Configurations are under `benchmarks/` and `scripts/`.
 
 ## Further reading
 

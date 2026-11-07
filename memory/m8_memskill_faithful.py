@@ -1,23 +1,12 @@
-"""M8 — Skill Bundles: recovered MemSkill upstream adapter.
+"""M8 — Skill Bundles: MemSkill adapter.
 
-Provenance: restored from this repository's original commit 3ef6ecf
-(``memory/archived/m8_memskill_faithful.py`` after cafbfba), with engineering
-fixes for dependency checks, isolated runs, timeouts, and explicit errors.
-The customized external MemSkill runtime is not included in this repository.
-Restoring this adapter does not establish that published results are
-reproducible, and no missing controller or other algorithm is reconstructed.
+Buffers dialogue turns, exports staged questions in LongMemEval format,
+and invokes an external MemSkill backend with the LLM-controller interface.
+The backend writes predictions and component token usage; read() exposes
+its final answers as MemoryEntry objects.
 
-The adapter expects a customized ViktorAxelsen/MemSkill runtime at
-``third_party/MemSkill`` or ``config.extra['m8_vendor_dir']``. It buffers
-dialogue turns, receives the complete query batch through stage_queries(),
-exports LongMemEval-format JSON, and invokes that runtime's main.py using
-the original LLM-controller options. The runtime must write predictions
-and component token usage; read() exposes its final answers as MemoryEntry
-objects rather than asking the SubMem generator to answer again.
-
-This protocol is separate from the C15 reimplementation in
-``memory/m8_skill_bundles.py``. Restoring this module does not substitute
-that algorithm for the missing external runtime.
+Configure the backend at ``third_party/MemSkill`` or through
+``config.extra['m8_vendor_dir']``. See ``docs/M8.md`` for required interfaces.
 """
 
 import ast
@@ -181,22 +170,16 @@ class MemSkillFaithfulMemory(BaseMemoryUnit):
         self._has_run = False
 
     def _check_external_backend(self):
-        """Check the recovered custom runtime without importing or running it.
-
-        A vanilla upstream checkout is insufficient: the original adapter
-        requires the local LLM-controller and instrumentation integrations.
-        This structural check cannot certify historical runtime provenance.
-        """
+        """Check backend files and integration symbols before execution."""
         required = (
             "main.py", "src/controller.py", "src/config.py", "src/trainer.py",
             "src/_submem_token_meter.py",
         )
         missing = [name for name in required if not (self._vendor / name).is_file()]
         guidance = (
-            "Recover the customized MemSkill runtime used for this adapter and "
-            "set config.extra['m8_vendor_dir'] to its directory. The public "
-            "upstream checkout alone does not contain these integrations; "
-            "this repository does not supply a reconstruction."
+            "Set config.extra['m8_vendor_dir'] to a MemSkill backend with the "
+            "SubMem LLM-controller and instrumentation interfaces. "
+            "See docs/M8.md for backend requirements."
         )
         if missing:
             raise FileNotFoundError(

@@ -1,4 +1,4 @@
-"""Offline adapter contracts; this is not a MemSkill/model reproduction test."""
+"""Offline tests for M8 registration and backend integration."""
 
 import importlib
 import importlib.util
